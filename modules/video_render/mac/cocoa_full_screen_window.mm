@@ -60,6 +60,7 @@ using namespace webrtc;
 -(void)releaseFullScreen
 {
 	[_window orderOut:self];
+  [_window release];
 	
 #ifdef GRAB_ALL_SCREENS
 	if(CGReleaseAllDisplays() != kCGErrorSuccess)

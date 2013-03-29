@@ -53,7 +53,11 @@ class ScopedCOMInitializer {
 
   // Constructor for STA initialization.
   ScopedCOMInitializer() {
-    Initialize(COINIT_APARTMENTTHREADED);
+#if defined(WEBRTC_COINIT_MULTITHREADED)
+	  Initialize(COINIT_MULTITHREADED);
+#else // WEBRTC_COINIT_APARTMENTTHREADED
+	  Initialize(COINIT_APARTMENTTHREADED);
+#endif
   }
 
   // Constructor for MTA initialization.

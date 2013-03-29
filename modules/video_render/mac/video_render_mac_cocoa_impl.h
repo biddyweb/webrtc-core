@@ -130,7 +130,7 @@ public:
 
 private:
     WebRtc_Word32 _id;
-    CriticalSectionWrapper& _renderMacCocoaCritsect;
+    CriticalSectionWrapper* _renderMacCocoaCritsect;
     bool _fullScreen;
     void* _ptrWindow;
     VideoRenderNSOpenGL* _ptrCocoaRender;

@@ -50,6 +50,7 @@
         'linux/video_x11_render.h',
         'mac/cocoa_full_screen_window.mm',
         'mac/cocoa_full_screen_window.h',
+        'mac/cocoa_render_view_observer_interface.h',
         'mac/cocoa_render_view.mm',
         'mac/cocoa_render_view.h',
         'mac/video_render_agl.cc',

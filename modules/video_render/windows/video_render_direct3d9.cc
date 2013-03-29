@@ -53,13 +53,18 @@ D3D9Channel::D3D9Channel(LPDIRECT3DDEVICE9 pd3DDevice,
     _startWidth(0),
     _startHeight(0),
     _stopWidth(0),
-    _stopHeight(0)
+    _stopHeight(0),
+	_cropLeft(0),
+	_cropRight(1),
+	_cropBottom(1),
+	_cropTop(0)
 {
 
 }
 
 D3D9Channel::~D3D9Channel()
 {
+	CriticalSectionScoped cs(_critSect);
     //release the texture
     if (_pTexture != NULL)
     {
@@ -75,6 +80,7 @@ void D3D9Channel::SetStreamSettings(WebRtc_UWord16 streamId,
                                         float stopWidth,
                                         float stopHeight)
 {
+	CriticalSectionScoped cs(_critSect);
     _streamId = streamId;
     _zOrder = zOrder;
     _startWidth = startWidth;
@@ -90,12 +96,38 @@ int D3D9Channel::GetStreamSettings(WebRtc_UWord16 streamId,
                                        float& stopWidth,
                                        float& stopHeight)
 {
+	CriticalSectionScoped cs(_critSect);
     streamId = _streamId;
     zOrder = _zOrder;
     startWidth = _startWidth;
     startHeight = _startHeight;
     stopWidth = _stopWidth;
     stopHeight = _stopHeight;
+    return 0;
+}
+
+void D3D9Channel::SetStreamCropping(float cropLeft,
+									float cropRight,
+									float cropBottom,
+									float cropTop)
+{
+	CriticalSectionScoped cs(_critSect);
+	_cropLeft = cropLeft;
+	_cropRight = cropRight;
+	_cropBottom = cropBottom;
+	_cropTop = cropTop;
+}
+
+int D3D9Channel::GetStreamCropping(float& cropLeft,
+								   float& cropRight,
+								   float& cropBottom,
+								   float& cropTop)
+{
+	CriticalSectionScoped cs(_critSect);
+	cropLeft = _cropLeft;
+	cropRight = _cropRight;
+	cropBottom = _cropBottom;
+	cropTop = _cropTop;
     return 0;
 }
 
@@ -638,13 +670,15 @@ int VideoRenderDirect3D9::UpdateRenderSurface()
 
                     WebRtc_UWord32 zOrder;
                     float startWidth, startHeight, stopWidth, stopHeight;
-                    channelObj->GetStreamSettings(0, zOrder, startWidth,
-                                                  startHeight, stopWidth,
-                                                  stopHeight);
+                    float cropLeft, cropRight, cropBottom, cropTop;
+                    channelObj->GetStreamSettings(0, zOrder, 
+						startWidth, startHeight, stopWidth, stopHeight);
+					channelObj->GetStreamCropping(cropLeft, cropRight, cropBottom, cropTop);
 
                     //draw the video stream
-                    UpdateVerticeBuffer(_pVB, 0, startWidth, startHeight,
-                                        stopWidth, stopHeight);
+                    UpdateVerticeBuffer(_pVB, 0, 
+						startWidth, startHeight, stopWidth, stopHeight, 
+						cropLeft, cropRight, cropBottom, cropTop);
                     _pd3dDevice->SetTexture(0, textureFromChannel);
                     _pd3dDevice->DrawPrimitive(D3DPT_TRIANGLESTRIP, 0, 2);
 
@@ -659,7 +693,7 @@ int VideoRenderDirect3D9::UpdateRenderSurface()
         if (_pTextureLogo)
         {
             UpdateVerticeBuffer(_pVB, 0, _logoLeft, _logoTop, _logoRight,
-                                _logoBottom);
+                                _logoBottom, 0, 1, 1, 0);
             _pd3dDevice->SetTexture(0, _pTextureLogo);
             _pd3dDevice->DrawPrimitive(D3DPT_TRIANGLESTRIP, 0, 2);
         }
@@ -902,7 +936,11 @@ int VideoRenderDirect3D9::UpdateVerticeBuffer(LPDIRECT3DVERTEXBUFFER9 pVB,
                                                   float startWidth,
                                                   float startHeight,
                                                   float stopWidth,
-                                                  float stopHeight)
+                                                  float stopHeight,
+												  float cropLeft,
+												  float cropRight,
+												  float cropBottom,
+												  float cropTop)
 {
     if (pVB == NULL)
         return -1;
@@ -920,10 +958,10 @@ int VideoRenderDirect3D9::UpdateVerticeBuffer(LPDIRECT3DVERTEXBUFFER9 pVB,
 
     CUSTOMVERTEX newVertices[] = {
             //logo
-            { left, bottom, 0.0f, 0xffffffff, 0, 1 }, { left, top, 0.0f,
-                    0xffffffff, 0, 0 },
-            { right, bottom, 0.0f, 0xffffffff, 1, 1 }, { right, top, 0.0f,
-                    0xffffffff, 1, 0 }, };
+            { left,  bottom, 0.0f, 0xffffffff, cropLeft,  cropBottom },
+			{ left,  top,    0.0f, 0xffffffff, cropLeft,  cropTop },
+			{ right, bottom, 0.0f, 0xffffffff, cropRight, cropBottom },
+			{ right, top,    0.0f, 0xffffffff, cropRight, cropTop }, };
     // Now we fill the vertex buffer.
     VOID* pVertices;
     if (FAILED(pVB->Lock(sizeof(CUSTOMVERTEX) * offset, sizeof(newVertices),
@@ -963,7 +1001,18 @@ WebRtc_Word32 VideoRenderDirect3D9::SetCropping(const WebRtc_UWord32 channel,
                                                     const float right,
                                                     const float bottom)
 {
-    WEBRTC_TRACE(kTraceError, kTraceVideo, -1, "Not supported.");
+	CriticalSectionScoped cs(&_refD3DCritsect);
+	std::map<int, D3D9Channel*>::iterator ddIt;
+    ddIt = _d3dChannels.find(channel & 0x0000ffff);
+	if (ddIt == _d3dChannels.end() || ddIt->second == NULL)
+    {
+		WEBRTC_TRACE(kTraceError, kTraceVideo, -1,
+                     "Direct3D render failed to find channel");
+		return -1;
+	}
+
+	ddIt->second->SetStreamCropping(left, right, bottom, top);
+
     return 0;
 }
 

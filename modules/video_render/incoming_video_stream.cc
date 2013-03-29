@@ -107,6 +107,7 @@ WebRtc_Word32 IncomingVideoStream::RenderFrame(const WebRtc_UWord32 stream_id,
                                               video_frame.stride(kYPlane),
                                               video_frame.stride(kUPlane),
                                               video_frame.stride(kVPlane));
+    transformed_video_frame_.set_render_time_ms(video_frame.render_time_ms());
     if (mirroring_.mirror_x_axis) {
       MirrorI420UpDown(&video_frame,
                        &transformed_video_frame_);

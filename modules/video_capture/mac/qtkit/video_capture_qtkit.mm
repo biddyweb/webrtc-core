@@ -101,7 +101,7 @@ WebRtc_Word32 VideoCaptureMacQTKit::Init(
     }
 
     int captureDeviceCount = [[_captureInfo getCaptureDeviceCount]intValue];
-    if(captureDeviceCount < 0)
+    if(captureDeviceCount <= 0)
     {
         WEBRTC_TRACE(webrtc::kTraceError, webrtc::kTraceVideoCapture, id,
                      "No Capture Devices Present");

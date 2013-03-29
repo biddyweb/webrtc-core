@@ -1,3 +1,4 @@
+
 /*
  *  Copyright (c) 2012 The WebRTC project authors. All Rights Reserved.
  *
@@ -50,6 +51,18 @@ using namespace videocapturemodule;
     {
         [_captureSession stopRunning];
         [_captureSession release];
+    }
+    if(_captureVideoDeviceInput)
+    {
+        while ([[_captureVideoDeviceInput device] isOpen])
+        {
+            [[_captureVideoDeviceInput device] close];
+        }
+        [_captureVideoDeviceInput release];
+    }
+    if(_captureDevices)
+    {
+        [_captureDevices release];
     }
     [super dealloc];
 }
@@ -222,7 +235,7 @@ using namespace videocapturemodule;
     }
   
 //    NSLog(@"--------------- before ---------------");
-    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate distantFuture]];
+//    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate distantFuture]];
 //    NSLog(@"--------------- after ---------------");
 
     if(NO == _captureInitialized)
@@ -279,7 +292,7 @@ using namespace videocapturemodule;
         return [NSNumber numberWithInt:0];
     }
 
-    _pool = [[NSAutoreleasePool alloc]init];
+    //_pool = [[NSAutoreleasePool alloc]init];
 
     memset(_captureDeviceNameUTF8, 0, 1024);
     _counter = 0;
@@ -291,7 +304,7 @@ using namespace videocapturemodule;
     _frameRate = DEFAULT_FRAME_RATE;
     _frameWidth = DEFAULT_FRAME_WIDTH;
     _frameHeight = DEFAULT_FRAME_HEIGHT;
-    _captureDeviceName = [[NSString alloc] initWithFormat:@""];
+    _captureDeviceName = @"";
     _rLock = [[VideoCaptureRecursiveLock alloc] init];
     _captureSession = [[QTCaptureSession alloc] init];
     _captureDecompressedVideoOutput = [[QTCaptureDecompressedVideoOutput alloc]

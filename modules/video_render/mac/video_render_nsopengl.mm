@@ -41,13 +41,20 @@ _bufferIsUpdated( false),
 _numberOfStreams( 0),
 _pixelFormat( GL_RGBA),
 _pixelDataType( GL_UNSIGNED_INT_8_8_8_8),
-_texture( 0)
+_texture( 0),
+_frameSizeChanged(false),
+_crop_left(0),
+_crop_top(0),
+_crop_right(1),
+_crop_bottom(1)
 {
 
 }
 
 VideoChannelNSOpenGL::~VideoChannelNSOpenGL()
 {
+    _owner->LockAGLCntx();
+    
     if (_buffer)
     {
         delete [] _buffer;
@@ -60,11 +67,13 @@ VideoChannelNSOpenGL::~VideoChannelNSOpenGL()
         glDeleteTextures(1, (const GLuint*) &_texture);
         _texture = 0;
     }
+    
+    _owner->UnlockAGLCntx();
 }
 
 int VideoChannelNSOpenGL::ChangeContext(NSOpenGLContext *nsglContext)
 {
-    _owner->UnlockAGLCntx();
+    _owner->LockAGLCntx();
 
     _nsglContext = nsglContext;
     [_nsglContext makeCurrentContext];
@@ -91,22 +100,24 @@ WebRtc_Word32 VideoChannelNSOpenGL::GetChannelProperties(float& left,
     return 0;
 }
 
-WebRtc_Word32 VideoChannelNSOpenGL::RenderFrame(
-  const WebRtc_UWord32 /*streamId*/, I420VideoFrame& videoFrame) {
+WebRtc_Word32 VideoChannelNSOpenGL::RenderFrame(const WebRtc_UWord32 /*streamId*/, I420VideoFrame& videoFrame)
+{
+    _owner->LockAGLCntx();
 
-  _owner->LockAGLCntx();
+    if(_width != (int)videoFrame.width() ||
+            _height != (int)videoFrame.height())
+    {
+        if(FrameSizeChange(videoFrame.width(), videoFrame.height(), 1) == -1)
+        {
+            _owner->UnlockAGLCntx();
+            return -1;
+        }
+    }
 
-  if(_width != videoFrame.width() ||
-     _height != videoFrame.height()) {
-      if(FrameSizeChange(videoFrame.width(), videoFrame.height(), 1) == -1) {
-        _owner->UnlockAGLCntx();
-        return -1;
-      }
-  }
-  int ret = DeliverFrame(videoFrame);
+    int ret = DeliverFrame(videoFrame);
 
-  _owner->UnlockAGLCntx();
-  return ret;
+    _owner->UnlockAGLCntx();
+    return ret;
 }
 
 int VideoChannelNSOpenGL::UpdateSize(int width, int height)
@@ -131,7 +142,6 @@ int VideoChannelNSOpenGL::UpdateStretchSize(int stretchHeight, int stretchWidth)
 int VideoChannelNSOpenGL::FrameSizeChange(int width, int height, int numberOfStreams)
 {
     //  We got a new frame size from VideoAPI, prepare the buffer
-
     _owner->LockAGLCntx();
 
     if (width == _width && _height == height)
@@ -153,32 +163,60 @@ int VideoChannelNSOpenGL::FrameSizeChange(int width, int height, int numberOfStr
     }
 
     _incommingBufferSize = CalcBufferSize(kI420, _width, _height);
-    _bufferSize = CalcBufferSize(kARGB, _width, _height);
+    _bufferSize = CalcBufferSize(kARGB, _width, _height);//_width * _height * bytesPerPixel;
     _buffer = new unsigned char [_bufferSize];
     memset(_buffer, 0, _bufferSize * sizeof(unsigned char));
 
+    _frameSizeChanged = true;
+
+    _owner->UnlockAGLCntx();
+    return 0;
+}
+
+int VideoChannelNSOpenGL::FrameSizeChangeInternal()
+{
+    _owner->LockAGLCntx();
+    
+    if (!_frameSizeChanged)
+    {
+        _owner->UnlockAGLCntx();
+        return 0;
+    }
+    
     [_nsglContext makeCurrentContext];
 
-    if(glIsTexture(_texture))
-    {
-        glDeleteTextures(1, (const GLuint*) &_texture);
-        _texture = 0;
-    }
+    glDeleteTextures(1, (const GLuint*) &_texture);
+    _texture = 0;
 
     // Create a new texture
     glGenTextures(1, (GLuint *) &_texture);
 
     GLenum glErr = glGetError();
-
     if (glErr != GL_NO_ERROR)
     {
-
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glGenTextures in FrameSizeChange", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
     }
 
     glBindTexture(GL_TEXTURE_RECTANGLE_EXT, _texture);
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glBindTexture in FrameSizeChange", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
 
     GLint texSize;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &texSize);
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glGetIntegerv in FrameSizeChange", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
 
     if (texSize < _width || texSize < _height)
     {
@@ -200,79 +238,96 @@ int VideoChannelNSOpenGL::FrameSizeChange(int width, int height, int numberOfStr
     glErr = glGetError();
     if (glErr != GL_NO_ERROR)
     {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glTexImage2D in FrameSizeChange", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
+    
+    _frameSizeChanged = false;
+
+    _owner->UnlockAGLCntx();
+    return 0;
+}
+
+int VideoChannelNSOpenGL::DeliverFrame(const I420VideoFrame& videoFrame)
+{
+    _owner->LockAGLCntx();
+    
+    if (CalcBufferSize(kI420, videoFrame.width(), videoFrame.height()) != _incommingBufferSize)
+    {
         _owner->UnlockAGLCntx();
         return -1;
     }
 
+    int rgbRet = ConvertFromYV12(videoFrame, kBGRA, 0, _buffer);
+    if (rgbRet < 0)
+    {
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
+
+    _bufferIsUpdated = true;
+
     _owner->UnlockAGLCntx();
     return 0;
 }
-
-int VideoChannelNSOpenGL::DeliverFrame(const I420VideoFrame& videoFrame) {
-
-  _owner->LockAGLCntx();
-
-  if (_texture == 0) {
+    
+int VideoChannelNSOpenGL::UpdateTexture()
+{
+    _owner->LockAGLCntx();
+    
+    if (_texture == 0)
+    {
+        _owner->UnlockAGLCntx();
+        return 0;
+    }
+    
+    if (!_bufferIsUpdated)
+    {
+        _owner->UnlockAGLCntx();
+        return 0;
+    }
+    
+    [_nsglContext makeCurrentContext];
+    
+    glBindTexture(GL_TEXTURE_RECTANGLE_EXT, _texture); // Make sure this texture is the active one
+    GLenum glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glBindTexture in DeliverFrame", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
+    
+    glTexSubImage2D(GL_TEXTURE_RECTANGLE_EXT,
+                    0, // Level, not use
+                    0, // start point x, (low left of pic)
+                    0, // start point y,
+                    _width, // width
+                    _height, // height
+                    _pixelFormat, // pictue format for _buffer
+                    _pixelDataType, // data type of _buffer
+                    (const GLvoid*) _buffer); // the pixel data
+    
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glTexSubImage2d in DeliverFrame", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
+    
     _owner->UnlockAGLCntx();
     return 0;
-  }
-
-  int length = CalcBufferSize(kI420, videoFrame.width(), videoFrame.height());
-  if (length != _incommingBufferSize) {
-    _owner->UnlockAGLCntx();
-    return -1;
-  }
-
-  // Using the I420VideoFrame for YV12: YV12 is YVU; I420 assumes
-  // YUV.
-  // TODO(mikhal) : Use appropriate functionality.
-  // TODO(wu): See if we are using glTexSubImage2D correctly.
-  int rgbRet = ConvertFromYV12(videoFrame, kBGRA, 0, _buffer);
-  if (rgbRet < 0) {
-    _owner->UnlockAGLCntx();
-    return -1;
-  }
-
-  [_nsglContext makeCurrentContext];
-
-  // Make sure this texture is the active one
-  glBindTexture(GL_TEXTURE_RECTANGLE_EXT, _texture);
-  GLenum glErr = glGetError();
-  if (glErr != GL_NO_ERROR) {
-    WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id,
-    "ERROR %d while calling glBindTexture", glErr);
-    _owner->UnlockAGLCntx();
-    return -1;
-  }
-
-  glTexSubImage2D(GL_TEXTURE_RECTANGLE_EXT,
-                  0, // Level, not use
-                  0, // start point x, (low left of pic)
-                  0, // start point y,
-                  _width, // width
-                  _height, // height
-                  _pixelFormat, // pictue format for _buffer
-                  _pixelDataType, // data type of _buffer
-                  (const GLvoid*) _buffer); // the pixel data
-
-  glErr = glGetError();
-  if (glErr != GL_NO_ERROR) {
-    WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id,
-    "ERROR %d while calling glTexSubImage2d", glErr);
-    _owner->UnlockAGLCntx();
-    return -1;
-  }
-
-  _bufferIsUpdated = true;
-
-  _owner->UnlockAGLCntx();
-  return 0;
 }
 
 int VideoChannelNSOpenGL::RenderOffScreenBuffer()
 {
-
     _owner->LockAGLCntx();
+    
+    FrameSizeChangeInternal();
+    
+    UpdateTexture();
 
     if (_texture == 0)
     {
@@ -299,21 +354,57 @@ int VideoChannelNSOpenGL::RenderOffScreenBuffer()
     [_nsglContext makeCurrentContext];
 
     glBindTexture(GL_TEXTURE_RECTANGLE_EXT, _texture);
+    GLenum glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glBindTexture in RenderOffScreenBuffer", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
     _oldStretchedHeight = _stretchedHeight;
     _oldStretchedWidth = _stretchedWidth;
 
     glLoadIdentity();
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glLoadIdentity in RenderOffScreenBuffer", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
     glEnable(GL_TEXTURE_RECTANGLE_EXT);
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glEnable in RenderOffScreenBuffer", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
+    
     glBegin(GL_POLYGON);
     {
-        glTexCoord2f(0.0, 0.0); glVertex2f(xStart, yStop);
-        glTexCoord2f(_width, 0.0); glVertex2f(xStop, yStop);
-        glTexCoord2f(_width, _height); glVertex2f(xStop, yStart);
-        glTexCoord2f(0.0, _height); glVertex2f(xStart, yStart);
+        glTexCoord2f(_width * _crop_left,  _height * _crop_top);    glVertex2f(xStart, yStop);
+        glTexCoord2f(_width * _crop_right, _height * _crop_top);    glVertex2f(xStop, yStop);
+        glTexCoord2f(_width * _crop_right, _height * _crop_bottom); glVertex2f(xStop, yStart);
+        glTexCoord2f(_width * _crop_left,  _height * _crop_bottom); glVertex2f(xStart, yStart);
     }
     glEnd();
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d between glBegin/glEnd in RenderOffScreenBuffer", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
 
     glDisable(GL_TEXTURE_RECTANGLE_EXT);
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glDisable in RenderOffScreenBuffer", glErr);
+        _owner->UnlockAGLCntx();
+        return -1;
+    }
 
     _bufferIsUpdated = false;
 
@@ -353,9 +444,21 @@ int VideoChannelNSOpenGL::SetStreamSettings(int /*streamId*/, float startWidth, 
     return retVal;
 }
 
-int VideoChannelNSOpenGL::SetStreamCropSettings(int /*streamId*/, float /*startWidth*/, float /*startHeight*/, float /*stopWidth*/, float /*stopHeight*/)
+int VideoChannelNSOpenGL::SetStreamCropSettings(int /*streamId*/,
+                                                float left,
+                                                float top,
+                                                float right,
+                                                float bottom)
 {
-    return -1;
+    _owner->LockAGLCntx();
+    
+    _crop_left = left;
+    _crop_top = top;
+    _crop_right = right;
+    _crop_bottom = bottom;
+        
+    _owner->UnlockAGLCntx();
+    return 0;
 }
 
 /*
@@ -364,8 +467,8 @@ int VideoChannelNSOpenGL::SetStreamCropSettings(int /*streamId*/, float /*startW
  *
  */
 
-VideoRenderNSOpenGL::VideoRenderNSOpenGL(CocoaRenderView *windowRef, bool fullScreen, int iId) :
-_windowRef( (CocoaRenderView*)windowRef),
+VideoRenderNSOpenGL::VideoRenderNSOpenGL(NSView *windowRefSuperView, bool fullScreen, int iId) :
+_windowRef(NULL),
 _fullScreen( fullScreen),
 _id( iId),
 _nsglContextCritSec( *CriticalSectionWrapper::CreateCriticalSection()),
@@ -381,25 +484,39 @@ _nsglChannels( ),
 _zOrderToChannel( ),
 _threadID (0),
 _renderingIsPaused (FALSE),
-_windowRefSuperView(NULL),
-_windowRefSuperViewFrame(NSMakeRect(0,0,0,0))
+_windowRefSuperView(windowRefSuperView),
+_mixingContextReady(false)
 {
+    CriticalSectionScoped cs(&_nsglContextCritSec);
+
+    if (NULL == windowRefSuperView)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "windowRefSuperView is NULL");
+        return;
+    }
+    _windowRefSuperViewFrame = [_windowRefSuperView frame];
+    
+    _windowRef = [[CocoaRenderView alloc] initWithFrame:_windowRefSuperView.bounds];
+    [_windowRef registerObserver:this];
+    [_windowRefSuperView addSubview:_windowRef];
+    [_windowRefSuperView setAutoresizesSubviews:YES];
+    [_windowRef setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    _nsglContext = [_windowRef openGLContext];
+    
     _screenUpdateThread = ThreadWrapper::CreateThread(ScreenUpdateThreadProc, this, kRealtimePriority);
     _screenUpdateEvent = EventWrapper::Create();
 }
 
-int VideoRenderNSOpenGL::ChangeWindow(CocoaRenderView* newWindowRef)
+int VideoRenderNSOpenGL::ChangeWindow(NSView* newWindowRefSuperView)
 {
-
     LockAGLCntx();
 
-    _windowRef = newWindowRef;
-
-    if(CreateMixingContext() == -1)
-    {
-        UnlockAGLCntx();
-        return -1;
-    }
+    [_windowRef removeFromSuperview];
+    _windowRefSuperView = newWindowRefSuperView;
+    _windowRefSuperViewFrame = _windowRefSuperView.frame;
+    _windowRef.frame = _windowRefSuperView.bounds;
+    [_windowRefSuperView addSubview:_windowRef];
+    _nsglContext = _windowRef.openGLContext;
 
     int error = 0;
     std::map<int, VideoChannelNSOpenGL*>::iterator it = _nsglChannels.begin();
@@ -418,7 +535,7 @@ int VideoRenderNSOpenGL::ChangeWindow(CocoaRenderView* newWindowRef)
     return 0;
 }
 
-/* Check if the thread and event already exist.
+/* Check if the thread and event already exist. 
  * If so then they will simply be restarted
  * If not then create them and continue
  */
@@ -452,7 +569,6 @@ WebRtc_Word32 VideoRenderNSOpenGL::StartRender()
         UnlockAGLCntx();
         return -1;
     }
-
 
     UnlockAGLCntx();
     return 0;
@@ -492,12 +608,10 @@ WebRtc_Word32 VideoRenderNSOpenGL::StopRender()
 int VideoRenderNSOpenGL::configureNSOpenGLView()
 {
     return 0;
-
 }
 
 int VideoRenderNSOpenGL::configureNSOpenGLEngine()
 {
-
     LockAGLCntx();
 
     // Disable not needed functionality to increase performance
@@ -511,6 +625,14 @@ int VideoRenderNSOpenGL::configureNSOpenGLEngine()
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     glDisable(GL_CULL_FACE);
+    
+    GLenum glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while disabling not needed functionality", glErr);
+        UnlockAGLCntx();
+        return -1;
+    }
 
     // Set texture parameters
     glTexParameterf(GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_PRIORITY, 1.0);
@@ -521,6 +643,13 @@ int VideoRenderNSOpenGL::configureNSOpenGLEngine()
     glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexParameteri(GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_STORAGE_HINT_APPLE, GL_STORAGE_SHARED_APPLE);
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while setting texture parameters", glErr);
+        UnlockAGLCntx();
+        return -1;
+    }
 
     if (GetWindowRect(_windowRect) == -1)
     {
@@ -535,6 +664,13 @@ int VideoRenderNSOpenGL::configureNSOpenGLEngine()
         _windowHeight = _windowRect.bottom - _windowRect.top;
     }
     glViewport(0, 0, _windowWidth, _windowHeight);
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glViewport", glErr);
+        UnlockAGLCntx();
+        return -1;
+    }
 
     // Synchronize buffer swaps with vertical refresh rate
     GLint swapInt = 1;
@@ -547,39 +683,31 @@ int VideoRenderNSOpenGL::configureNSOpenGLEngine()
 int VideoRenderNSOpenGL::setRenderTargetWindow()
 {
     LockAGLCntx();
+    
+    [_nsglContext makeCurrentContext];
 
-
-    GLuint attribs[] =
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    GLenum glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
     {
-        NSOpenGLPFAColorSize, 24,
-        NSOpenGLPFAAlphaSize, 8,
-        NSOpenGLPFADepthSize, 16,
-        NSOpenGLPFAAccelerated,
-        0
-    };
-
-    NSOpenGLPixelFormat* fmt = [[NSOpenGLPixelFormat alloc] initWithAttributes: (NSOpenGLPixelFormatAttribute*) attribs];
-
-    if(_windowRef)
-    {
-        [_windowRef initCocoaRenderView:fmt];
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glClearColor in setRenderTargetWindow", glErr);
+        UnlockAGLCntx();
+        return -1;
     }
-    else
+    glClear(GL_COLOR_BUFFER_BIT);
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
     {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glClear in setRenderTargetWindow", glErr);
         UnlockAGLCntx();
         return -1;
     }
 
-    [fmt release];
-
-    _nsglContext = [_windowRef nsOpenGLContext];
-    [_nsglContext makeCurrentContext];
-
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-
-    DisplayBuffers();
+    if (-1 == DisplayBuffers())
+    {
+        UnlockAGLCntx();
+        return -1;
+    }
 
     UnlockAGLCntx();
     return 0;
@@ -589,52 +717,40 @@ int VideoRenderNSOpenGL::setRenderTargetFullScreen()
 {
     LockAGLCntx();
 
-
-    GLuint attribs[] =
-    {
-        NSOpenGLPFAColorSize, 24,
-        NSOpenGLPFAAlphaSize, 8,
-        NSOpenGLPFADepthSize, 16,
-        NSOpenGLPFAAccelerated,
-        0
-    };
-
-    NSOpenGLPixelFormat* fmt = [[NSOpenGLPixelFormat alloc] initWithAttributes: (NSOpenGLPixelFormatAttribute*) attribs];
-
-    // Store original superview and frame for use when exiting full screens
-    _windowRefSuperViewFrame = [_windowRef frame];
-    _windowRefSuperView = [_windowRef superview];
-
-
     // create new fullscreen window
     NSRect screenRect = [[NSScreen mainScreen]frame];
     [_windowRef setFrame:screenRect];
     [_windowRef setBounds:screenRect];
 
-
-    _fullScreenWindow = [[CocoaFullScreenWindow alloc]init];
+    
+    _fullScreenWindow = [[CocoaFullScreenWindow alloc] init];
     [_fullScreenWindow grabFullScreen];
     [[[_fullScreenWindow window] contentView] addSubview:_windowRef];
 
-    if(_windowRef)
+    [_nsglContext makeCurrentContext];
+
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    GLenum glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
     {
-        [_windowRef initCocoaRenderViewFullScreen:fmt];
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glClearColor in setRenderTargetFullScreen", glErr);
+        UnlockAGLCntx();
+        return -1;
     }
-    else
+    glClear(GL_COLOR_BUFFER_BIT);
+    glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glClear in setRenderTargetFullScreen", glErr);
+        UnlockAGLCntx();
+        return -1;
+    }
+    
+    if (-1 == DisplayBuffers())
     {
         UnlockAGLCntx();
         return -1;
     }
-
-    [fmt release];
-
-    _nsglContext = [_windowRef nsOpenGLContext];
-    [_nsglContext makeCurrentContext];
-
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    DisplayBuffers();
 
     UnlockAGLCntx();
     return 0;
@@ -642,23 +758,26 @@ int VideoRenderNSOpenGL::setRenderTargetFullScreen()
 
 VideoRenderNSOpenGL::~VideoRenderNSOpenGL()
 {
-
+    [_windowRef registerObserver:0];
+    
     if(_fullScreen)
     {
         if(_fullScreenWindow)
         {
-            // Detach CocoaRenderView from full screen view back to
+            // Detach CocoaRenderView from full screen view back to 
             // it's original parent.
             [_windowRef removeFromSuperview];
-            if(_windowRefSuperView)
+            if(_windowRefSuperView) 
             {
               [_windowRefSuperView addSubview:_windowRef];
               [_windowRef setFrame:_windowRefSuperViewFrame];
             }
-
+            
             WEBRTC_TRACE(kTraceDebug, kTraceVideoRenderer, 0, "%s:%d Attempting to release fullscreen window", __FUNCTION__, __LINE__);
-            [_fullScreenWindow releaseFullScreen];
-
+            [_fullScreenWindow release];
+//            [_fullScreenWindow releaseFullScreen];
+            _fullScreenWindow = nil;
+     
         }
     }
 
@@ -704,7 +823,8 @@ VideoRenderNSOpenGL::~VideoRenderNSOpenGL()
         zIt = _zOrderToChannel.begin();
     }
     _zOrderToChannel.clear();
-
+    
+    [_windowRef release];
 }
 
 /* static */
@@ -715,25 +835,19 @@ int VideoRenderNSOpenGL::GetOpenGLVersion(int& /*nsglMajor*/, int& /*nsglMinor*/
 
 int VideoRenderNSOpenGL::Init()
 {
-
     LockAGLCntx();
+ 
     if (!_screenUpdateThread)
     {
         UnlockAGLCntx();
         return -1;
     }
-
+    
     _screenUpdateThread->Start(_threadID);
-
+    
     // Start the event triggering the render process
     unsigned int monitorFreq = 60;
     _screenUpdateEvent->StartTimer(true, 1000/monitorFreq);
-
-    if (CreateMixingContext() == -1)
-    {
-        UnlockAGLCntx();
-        return -1;
-    }
 
     UnlockAGLCntx();
     return 0;
@@ -830,7 +944,6 @@ WebRtc_Word32 VideoRenderNSOpenGL::GetChannelProperties(const WebRtc_UWord16 str
         float& right,
         float& bottom)
 {
-
     CriticalSectionScoped cs(&_nsglContextCritSec);
 
     bool channelFound = false;
@@ -868,6 +981,23 @@ WebRtc_Word32 VideoRenderNSOpenGL::GetChannelProperties(const WebRtc_UWord16 str
     return 0;
 }
 
+WebRtc_Word32 VideoRenderNSOpenGL::SetStreamCropping(const WebRtc_UWord16 channel,
+                                                     const WebRtc_UWord16 streamId,
+                                                     float left,
+                                                     float top,
+                                                     float right,
+                                                     float bottom)
+{
+    CriticalSectionScoped cs(&_nsglContextCritSec);
+    std::map<int, VideoChannelNSOpenGL*>::iterator it = _nsglChannels.find(channel);
+    if (it == _nsglChannels.end() || it->second == NULL)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "Could not find the channel %d", channel);
+        return -1;
+    }
+    return it->second->SetStreamCropSettings(streamId, left, top, right, bottom);
+}
+    
 int VideoRenderNSOpenGL::StopThread()
 {
 
@@ -991,39 +1121,59 @@ bool VideoRenderNSOpenGL::ScreenUpdateThreadProc(void* obj)
 
 bool VideoRenderNSOpenGL::ScreenUpdateProcess()
 {
-
-    _screenUpdateEvent->Wait(10);
+    if (_screenUpdateEvent->Wait(100) == kEventTimeout)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "_screenUpdateEvent seems the have been stuck");
+    }
+    
+    CriticalSectionScoped cs(&_nsglContextCritSec);
+    if (_mixingContextReady)
+    {
+        return RedrawFrame();
+    }
+    return true;
+}
+    
+bool VideoRenderNSOpenGL::RedrawFrame()
+{
     LockAGLCntx();
-
+    
     if (!_screenUpdateThread)
     {
         WEBRTC_TRACE(kTraceWarning, kTraceVideoRenderer, _id, "%s no screen update thread", __FUNCTION__);
         UnlockAGLCntx();
         return false;
     }
-
+    
     [_nsglContext makeCurrentContext];
-
+    
     if (GetWindowRect(_windowRect) == -1)
     {
         UnlockAGLCntx();
         return true;
     }
-
+    
     if (_windowWidth != (_windowRect.right - _windowRect.left)
-            || _windowHeight != (_windowRect.bottom - _windowRect.top))
+        || _windowHeight != (_windowRect.bottom - _windowRect.top))
     {
         _windowWidth = _windowRect.right - _windowRect.left;
         _windowHeight = _windowRect.bottom - _windowRect.top;
         glViewport(0, 0, _windowWidth, _windowHeight);
+        GLenum glErr = glGetError();
+        if (glErr != GL_NO_ERROR)
+        {
+            WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glViewport", glErr);
+            UnlockAGLCntx();
+            return false;
+        }
     }
-
+    
     // Check if there are any updated buffers
     bool updated = false;
     std::map<int, VideoChannelNSOpenGL*>::iterator it = _nsglChannels.begin();
     while (it != _nsglChannels.end())
     {
-
+        
         VideoChannelNSOpenGL* aglChannel = it->second;
         aglChannel->UpdateStretchSize(_windowHeight, _windowWidth);
         aglChannel->IsUpdated(updated);
@@ -1033,10 +1183,9 @@ bool VideoRenderNSOpenGL::ScreenUpdateProcess()
         }
         it++;
     }
-
+    
     if (updated)
     {
-
         // At least on buffers is updated, we need to repaint the texture
         if (RenderOffScreenBuffers() != -1)
         {
@@ -1044,9 +1193,20 @@ bool VideoRenderNSOpenGL::ScreenUpdateProcess()
             return true;
         }
     }
-    //    }
+
     UnlockAGLCntx();
     return true;
+}
+    
+void VideoRenderNSOpenGL::drawRect(float x, float y, float w, float h)
+{
+    if(CreateMixingContext() == -1)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR creating mixing context");
+        return;
+    }
+
+    RedrawFrame();
 }
 
 /*
@@ -1057,9 +1217,13 @@ bool VideoRenderNSOpenGL::ScreenUpdateProcess()
 
 int VideoRenderNSOpenGL::CreateMixingContext()
 {
-
     CriticalSectionScoped cs(&_nsglContextCritSec);
-
+    
+    if (_mixingContextReady)
+    {
+        return 0;
+    }
+    
     if(_fullScreen)
     {
         if(-1 == setRenderTargetFullScreen())
@@ -1069,21 +1233,23 @@ int VideoRenderNSOpenGL::CreateMixingContext()
     }
     else
     {
-
         if(-1 == setRenderTargetWindow())
         {
             return -1;
         }
     }
 
-    configureNSOpenGLEngine();
-
-    DisplayBuffers();
-
-    GLenum glErr = glGetError();
-    if (glErr)
+    if (-1 == configureNSOpenGLEngine())
     {
+        return -1;
     }
+
+    if (-1 == DisplayBuffers())
+    {
+        return -1;
+    }
+    
+    _mixingContextReady = true;
 
     return 0;
 }
@@ -1107,6 +1273,13 @@ int VideoRenderNSOpenGL::RenderOffScreenBuffers()
 
     [_nsglContext makeCurrentContext];
     glClear(GL_COLOR_BUFFER_BIT);
+    GLenum glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glClear", glErr);
+        UnlockAGLCntx();
+        return -1;
+    }
 
     // Loop through all channels starting highest zOrder ending with lowest.
     for (std::multimap<int, int>::reverse_iterator rIt = _zOrderToChannel.rbegin();
@@ -1118,10 +1291,18 @@ int VideoRenderNSOpenGL::RenderOffScreenBuffers()
 
         VideoChannelNSOpenGL* aglChannel = it->second;
 
-        aglChannel->RenderOffScreenBuffer();
+        if (aglChannel->RenderOffScreenBuffer() == -1)
+        {
+            UnlockAGLCntx();
+            return -1;
+        }
     }
 
-    DisplayBuffers();
+    if (-1 == DisplayBuffers())
+    {
+        UnlockAGLCntx();
+        return -1;
+    }
 
     UnlockAGLCntx();
     return 0;
@@ -1137,10 +1318,17 @@ int VideoRenderNSOpenGL::RenderOffScreenBuffers()
 
 int VideoRenderNSOpenGL::DisplayBuffers()
 {
-
     LockAGLCntx();
 
     glFinish();
+    GLenum glErr = glGetError();
+    if (glErr != GL_NO_ERROR)
+    {
+        WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, _id, "ERROR %d while calling glFinish in DisplayBuffers()", glErr);
+        UnlockAGLCntx();
+        return -1;
+    }
+    
     [_nsglContext flushBuffer];
 
     WEBRTC_TRACE(kTraceDebug, kTraceVideoRenderer, _id, "%s glFinish and [_nsglContext flushBuffer]", __FUNCTION__);
@@ -1151,7 +1339,6 @@ int VideoRenderNSOpenGL::DisplayBuffers()
 
 int VideoRenderNSOpenGL::GetWindowRect(Rect& rect)
 {
-
     CriticalSectionScoped cs(&_nsglContextCritSec);
 
     if (_windowRef)
@@ -1182,7 +1369,6 @@ int VideoRenderNSOpenGL::GetWindowRect(Rect& rect)
 
 WebRtc_Word32 VideoRenderNSOpenGL::ChangeUniqueID(WebRtc_Word32 id)
 {
-
     CriticalSectionScoped cs(&_nsglContextCritSec);
     _id = id;
     return 0;

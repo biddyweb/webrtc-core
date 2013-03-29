@@ -119,11 +119,12 @@ ModuleVideoRenderImpl::ModuleVideoRenderImpl(
 #elif defined(WEBRTC_IOS)
         case kRenderiPhone:
         {
-            VideoRenderIPhoneImpl* ptrRenderer = new VideoRenderIPhoneImpl(_id, videoRenderType, window, _fullScreen);
-            if(ptrRenderer)
-            {
-                _ptrRenderer = reinterpret_cast<IVideoRender*>(ptrRenderer);
-            }
+            _ptrRenderer = NULL;
+//            VideoRenderIPhoneImpl* ptrRenderer = new VideoRenderIPhoneImpl(_id, videoRenderType, window, _fullScreen);
+//            if(ptrRenderer)
+//            {
+//                _ptrRenderer = reinterpret_cast<IVideoRender*>(ptrRenderer);
+//            }
         }
         break;
 
@@ -351,17 +352,18 @@ WebRtc_Word32 ModuleVideoRenderImpl::ChangeWindow(void* window)
 #ifdef WEBRTC_INCLUDE_INTERNAL_VIDEO_RENDER
 
 #if defined(WEBRTC_IOS) // WEBRTC_IOS must go before WEBRTC_MAC
-    _ptrRenderer = NULL;
-    delete _ptrRenderer;
-
-    VideoRenderIPhoneImpl* ptrRenderer;
-    ptrRenderer = new VideoRenderIPhoneImpl(_id, kRenderiPhone, window, _fullScreen);
-    if (!ptrRenderer)
-    {
-        return -1;
-    }
-    _ptrRenderer = reinterpret_cast<IVideoRender*>(ptrRenderer);
-    return _ptrRenderer->ChangeWindow(window);
+//    _ptrRenderer = NULL;
+//    delete _ptrRenderer;
+//
+//    VideoRenderIPhoneImpl* ptrRenderer;
+//    ptrRenderer = new VideoRenderIPhoneImpl(_id, kRenderiPhone, window, _fullScreen);
+//    if (!ptrRenderer)
+//    {
+//        return -1;
+//    }
+//    _ptrRenderer = reinterpret_cast<IVideoRender*>(ptrRenderer);
+//    return _ptrRenderer->ChangeWindow(window);
+    return -1;
 
 #elif defined(WEBRTC_MAC)
 

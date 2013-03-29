@@ -14,6 +14,8 @@
 namespace webrtc
 {
 
+#ifndef WEBRTC_IOS
+
 VideoCaptureModule* VideoCaptureFactory::Create(const WebRtc_Word32 id,
     const char* deviceUniqueIdUTF8) {
   return videocapturemodule::VideoCaptureImpl::Create(id, deviceUniqueIdUTF8);
@@ -28,5 +30,23 @@ VideoCaptureModule::DeviceInfo* VideoCaptureFactory::CreateDeviceInfo(
     const WebRtc_Word32 id) {
   return videocapturemodule::VideoCaptureImpl::CreateDeviceInfo(id);
 }
+
+#else // WEBRTC_IOS
+
+VideoCaptureModule* VideoCaptureFactory::Create(const WebRtc_Word32 id,
+                                                const char* deviceUniqueIdUTF8) {
+  return NULL;
+}
+
+VideoCaptureModule* VideoCaptureFactory::Create(const WebRtc_Word32 id,
+                                                VideoCaptureExternal*& externalCapture) {
+  return NULL;
+}
+
+VideoCaptureModule::DeviceInfo* VideoCaptureFactory::CreateDeviceInfo(const WebRtc_Word32 id) {
+  return NULL;
+}
+
+#endif // WEBRTC_IOS
 
 } // namespace webrtc

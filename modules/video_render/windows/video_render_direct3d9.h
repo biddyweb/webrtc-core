@@ -70,6 +70,14 @@ public:
                           float& startHeight,
                           float& stopWidth,
                           float& stopHeight);
+	void SetStreamCropping(float cropLeft,
+					 	   float cropRight,
+						   float cropBottom,
+						   float cropTop);
+	int GetStreamCropping(float& cropLeft,
+					 	  float& cropRight,
+						  float& cropBottom,
+						  float& cropTop);
 
     int ReleaseTexture();
     int RecreateTexture(LPDIRECT3DDEVICE9 pd3DDevice);
@@ -94,6 +102,10 @@ private:
     float _startHeight;
     float _stopWidth;
     float _stopHeight;
+	float _cropLeft;
+	float _cropRight;
+	float _cropBottom;
+	float _cropTop;
 };
 
 class VideoRenderDirect3D9: IVideoRenderWin
@@ -253,7 +265,9 @@ private:
 
     int UpdateVerticeBuffer(LPDIRECT3DVERTEXBUFFER9 pVB, int offset,
                             float startWidth, float startHeight,
-                            float stopWidth, float stopHeight);
+                            float stopWidth, float stopHeight,
+							float cropLeft, float cropRight,
+							float cropBottom, float cropTop);
 
     //code for providing graphics settings
     DWORD _totalMemory;

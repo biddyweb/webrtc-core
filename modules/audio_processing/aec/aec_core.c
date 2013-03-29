@@ -557,7 +557,7 @@ int WebRtcAec_InitAec(AecCore* aec, int sampFreq)
     WebRtcAec_FilterAdaptation = FilterAdaptation;
     WebRtcAec_OverdriveAndSuppress = OverdriveAndSuppress;
 
-#if defined(WEBRTC_ARCH_X86_FAMILY)
+#if defined(WEBRTC_ARCH_X86_FAMILY) && !defined(WEBRTC_IOS)
     if (WebRtc_GetCPUInfo(kSSE2)) {
       WebRtcAec_InitAec_SSE2();
     }

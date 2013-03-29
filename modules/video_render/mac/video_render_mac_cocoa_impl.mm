@@ -25,7 +25,7 @@ VideoRenderMacCocoaImpl::VideoRenderMacCocoaImpl(const WebRtc_Word32 id,
         void* window,
         const bool fullscreen) :
 _id(id),
-_renderMacCocoaCritsect(*CriticalSectionWrapper::CreateCriticalSection()),
+_renderMacCocoaCritsect(CriticalSectionWrapper::CreateCriticalSection()),
 _fullScreen(fullscreen),
 _ptrWindow(window)
 {
@@ -36,7 +36,7 @@ _ptrWindow(window)
 VideoRenderMacCocoaImpl::~VideoRenderMacCocoaImpl()
 {
     WEBRTC_TRACE(kTraceInfo, kTraceVideoRenderer, _id, "Destructor %s:%d", __FUNCTION__, __LINE__);
-    delete &_renderMacCocoaCritsect;
+    delete _renderMacCocoaCritsect;
     if (_ptrCocoaRender)
     {
         delete _ptrCocoaRender;
@@ -48,11 +48,11 @@ WebRtc_Word32
 VideoRenderMacCocoaImpl::Init()
 {
 
-    CriticalSectionScoped cs(&_renderMacCocoaCritsect);
+    CriticalSectionScoped cs(_renderMacCocoaCritsect);
     WEBRTC_TRACE(kTraceInfo, kTraceVideoRenderer, _id, "%s:%d", __FUNCTION__, __LINE__);
 
     // cast ptrWindow from void* to CocoaRenderer. Void* was once NSOpenGLView, and CocoaRenderer is NSOpenGLView.
-    _ptrCocoaRender = new VideoRenderNSOpenGL((CocoaRenderView*)_ptrWindow, _fullScreen, _id);
+    _ptrCocoaRender = new VideoRenderNSOpenGL((NSView*)_ptrWindow, _fullScreen, _id);
     if (!_ptrWindow)
     {
         WEBRTC_TRACE(kTraceWarning, kTraceVideoRenderer, _id, "Constructor %s:%d", __FUNCTION__, __LINE__);
@@ -71,7 +71,7 @@ VideoRenderMacCocoaImpl::Init()
 WebRtc_Word32
 VideoRenderMacCocoaImpl::ChangeUniqueId(const WebRtc_Word32 id)
 {
-    CriticalSectionScoped cs(&_renderMacCocoaCritsect);
+    CriticalSectionScoped cs(_renderMacCocoaCritsect);
     WEBRTC_TRACE(kTraceInfo, kTraceVideoRenderer, _id, "%s", __FUNCTION__);
     _id = id;
 
@@ -87,7 +87,7 @@ WebRtc_Word32
 VideoRenderMacCocoaImpl::ChangeWindow(void* window)
 {
 
-    CriticalSectionScoped cs(&_renderMacCocoaCritsect);
+    CriticalSectionScoped cs(_renderMacCocoaCritsect);
     WEBRTC_TRACE(kTraceInfo, kTraceVideoRenderer, _id, "%s changing ID to ", __FUNCTION__, window);
 
     if (window == NULL)
@@ -98,7 +98,7 @@ VideoRenderMacCocoaImpl::ChangeWindow(void* window)
 
 
     _ptrWindow = window;
-    _ptrCocoaRender->ChangeWindow((CocoaRenderView*)_ptrWindow);
+    _ptrCocoaRender->ChangeWindow((NSView*)_ptrWindow);
 
     return 0;
 }
@@ -111,7 +111,7 @@ VideoRenderMacCocoaImpl::AddIncomingRenderStream(const WebRtc_UWord32 streamId,
         const float right,
         const float bottom)
 {
-    CriticalSectionScoped cs(&_renderMacCocoaCritsect);
+    CriticalSectionScoped cs(_renderMacCocoaCritsect);
     WEBRTC_TRACE(kTraceDebug, kTraceVideoRenderer, _id, "%s", __FUNCTION__);
     VideoChannelNSOpenGL* nsOpenGLChannel = NULL;
 
@@ -132,7 +132,7 @@ WebRtc_Word32
 VideoRenderMacCocoaImpl::DeleteIncomingRenderStream(const WebRtc_UWord32 streamId)
 {
     WEBRTC_TRACE(kTraceDebug, kTraceVideoRenderer, _id, "Constructor %s:%d", __FUNCTION__, __LINE__);
-    CriticalSectionScoped cs(&_renderMacCocoaCritsect);
+    CriticalSectionScoped cs(_renderMacCocoaCritsect);
     _ptrCocoaRender->DeleteNSGLChannel(streamId);
 
     return 0;
@@ -192,7 +192,7 @@ WebRtc_Word32
 VideoRenderMacCocoaImpl::GetScreenResolution(WebRtc_UWord32& screenWidth,
         WebRtc_UWord32& screenHeight) const
 {
-    CriticalSectionScoped cs(&_renderMacCocoaCritsect);
+    CriticalSectionScoped cs(_renderMacCocoaCritsect);
     NSScreen* mainScreen = [NSScreen mainScreen];
 
     NSRect frame = [mainScreen frame];
@@ -205,7 +205,7 @@ VideoRenderMacCocoaImpl::GetScreenResolution(WebRtc_UWord32& screenWidth,
 WebRtc_UWord32
 VideoRenderMacCocoaImpl::RenderFrameRate(const WebRtc_UWord32 streamId)
 {
-    CriticalSectionScoped cs(&_renderMacCocoaCritsect);
+    CriticalSectionScoped cs(_renderMacCocoaCritsect);
     return 0;
 }
 
@@ -216,7 +216,7 @@ VideoRenderMacCocoaImpl::SetStreamCropping(const WebRtc_UWord32 streamId,
         const float right,
         const float bottom)
 {
-    return 0;
+    return _ptrCocoaRender->SetStreamCropping(streamId, 0, left, top, right, bottom);
 }
 
 WebRtc_Word32 VideoRenderMacCocoaImpl::ConfigureRenderer(const WebRtc_UWord32 streamId,

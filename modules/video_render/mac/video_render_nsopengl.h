@@ -23,6 +23,7 @@
 #include <map>
 
 #include "video_render_defines.h"
+#include "cocoa_render_view_observer_interface.h"
 
 #import "cocoa_render_view.h"
 #import "cocoa_full_screen_window.h"
@@ -73,6 +74,13 @@ public:
             float& right,
             float& bottom);
 
+protected:
+
+    // Called when the incomming frame size and/or number of streams in mix changes
+    virtual int FrameSizeChangeInternal();
+
+    int UpdateTexture();
+    
 private:
 
     NSOpenGLContext* _nsglContext;
@@ -96,14 +104,19 @@ private:
     GLenum _pixelFormat;
     GLenum _pixelDataType;
     unsigned int _texture;
+    bool _frameSizeChanged;
+    float _crop_left;
+    float _crop_top;
+    float _crop_right;
+    float _crop_bottom;
 };
 
-class VideoRenderNSOpenGL
+class VideoRenderNSOpenGL : public CocoaRenderViewObserverInterface
 {
 
 public: // methods
-    VideoRenderNSOpenGL(CocoaRenderView *windowRef, bool fullScreen, int iId);
-    ~VideoRenderNSOpenGL();
+    VideoRenderNSOpenGL(NSView *windowRef, bool fullScreen, int iId);
+    virtual ~VideoRenderNSOpenGL();
 
     static int GetOpenGLVersion(int& nsglMajor, int& nsglMinor);
 
@@ -122,7 +135,7 @@ public: // methods
     void UnlockAGLCntx();
 
     // ********** new module functions ************ //
-    int ChangeWindow(CocoaRenderView* newWindowRef);
+    int ChangeWindow(NSView* newWindowRef);
     WebRtc_Word32 ChangeUniqueID(WebRtc_Word32 id);
     WebRtc_Word32 StartRender();
     WebRtc_Word32 StopRender();
@@ -133,6 +146,12 @@ public: // methods
             float& top,
             float& right,
             float& bottom);
+    WebRtc_Word32 SetStreamCropping(const WebRtc_UWord16 channel,
+                                    const WebRtc_UWord16 streamId,
+                                    float left,
+                                    float top,
+                                    float right,
+                                    float bottom);
 
     WebRtc_Word32 SetText(const WebRtc_UWord8 textId,
             const WebRtc_UWord8* text,
@@ -149,10 +168,14 @@ public: // methods
     int configureNSOpenGLView();
     int setRenderTargetWindow();
     int setRenderTargetFullScreen();
+    
+    // implement CocoaRenderViewObserverInterface
+    virtual void drawRect(float x, float y, float w, float h);
 
 protected: // methods
     static bool ScreenUpdateThreadProc(void* obj);
     bool ScreenUpdateProcess();
+    bool RedrawFrame();
     int GetWindowRect(Rect& rect);
 
 private: // methods
@@ -182,6 +205,7 @@ private: // variables
     bool _renderingIsPaused;
     NSView* _windowRefSuperView;
     NSRect _windowRefSuperViewFrame;
+    bool _mixingContextReady;
 };
 
 } //namespace webrtc

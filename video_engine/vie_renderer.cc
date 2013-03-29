@@ -169,6 +169,9 @@ int ViEExternalRendererImpl::SetViEExternalRenderer(
 WebRtc_Word32 ViEExternalRendererImpl::RenderFrame(
     const WebRtc_UWord32 stream_id,
     I420VideoFrame&   video_frame) {
+
+  external_renderer_->DeliverI420Frame(&video_frame);
+    
   VideoFrame* out_frame = converted_frame_.get();
 
   // Convert to requested format.

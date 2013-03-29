@@ -20,13 +20,20 @@
 #import <OpenGL/glu.h>
 #import <OpenGL/OpenGL.h>
 
+#include "critical_section_wrapper.h"
+
+#include "cocoa_render_view_observer_interface.h"
+
 @interface CocoaRenderView : NSOpenGLView {
-  NSOpenGLContext* _nsOpenGLContext;
+    webrtc::CriticalSectionWrapper* _cs;
+    CocoaRenderViewObserverInterface* _observer;
 }
 
--(void)initCocoaRenderView:(NSOpenGLPixelFormat*)fmt;
--(void)initCocoaRenderViewFullScreen:(NSOpenGLPixelFormat*)fmt;
--(NSOpenGLContext*)nsOpenGLContext;
+-(id)initWithFrame:(NSRect)frameRect;
+-(void)registerObserver:(CocoaRenderViewObserverInterface*)observer;
+-(void)setOpenGLContext:(NSOpenGLContext*)context;
+-(NSOpenGLContext*)openGLContext;
+
 @end
 
 #endif  // WEBRTC_MODULES_VIDEO_RENDER_MAIN_SOURCE_MAC_COCOA_RENDER_VIEW_H_

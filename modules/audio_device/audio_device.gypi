@@ -176,6 +176,10 @@
                   '-lmsdmo.lib',
                 ],
               },
+              'defines': [
+                'WEBRTC_COINIT_MULTITHREADED',
+                #'WEBRTC_COINIT_APARTMENTTHREADED',
+              ],
             }],
           ], # conditions
         }], # include_internal_audio_device==1

@@ -67,9 +67,8 @@ WebRtc_Word32 VideoCaptureMacQTKitInfo::NumberOfCapabilities(
     // Not implemented. Mac doesn't use discrete steps in capabilities, rather
     // "analog". QTKit will do it's best to convert frames to what ever format
     // you ask for.
-    WEBRTC_TRACE(webrtc::kTraceError, webrtc::kTraceVideoCapture, _id,
-                 "NumberOfCapabilities is not supported on the Mac platform.");
-    return -1;
+    // Return one hardcoded capability.
+    return 1;
 }
 
 
@@ -81,9 +80,16 @@ WebRtc_Word32 VideoCaptureMacQTKitInfo::GetCapability(
     // Not implemented. Mac doesn't use discrete steps in capabilities, rather
     // "analog". QTKit will do it's best to convert frames to what ever format
     // you ask for.
-    WEBRTC_TRACE(webrtc::kTraceError, webrtc::kTraceVideoCapture, _id,
-                 "NumberOfCapabilities is not supported on the Mac platform.");
-    return -1;
+    // Return one hardcoded capability.
+    capability.width  = 640;
+    capability.height = 480;
+    capability.maxFPS = 30;
+    capability.expectedCaptureDelay = 120;
+    capability.rawType    = kVideoI420;
+    capability.codecType  = kVideoCodecUnknown;
+    capability.interlaced = false;
+    
+    return 0;
 }
 
 
@@ -94,9 +100,8 @@ WebRtc_Word32 VideoCaptureMacQTKitInfo::GetBestMatchedCapability(
     // Not implemented. Mac doesn't use discrete steps in capabilities, rather
     // "analog". QTKit will do it's best to convert frames to what ever format
     // you ask for.
-    WEBRTC_TRACE(webrtc::kTraceInfo, webrtc::kTraceVideoCapture, _id,
-                 "NumberOfCapabilities is not supported on the Mac platform.");
-    return -1;
+    // Return one hardcoded capability.
+    return GetCapability(deviceUniqueIdUTF8, 0, resulting);
 }
 
 WebRtc_Word32 VideoCaptureMacQTKitInfo::DisplayCaptureSettingsDialogBox(
@@ -118,9 +123,8 @@ WebRtc_Word32 VideoCaptureMacQTKitInfo::CreateCapabilityMap(
     // Not implemented. Mac doesn't use discrete steps in capabilities, rather
     // "analog". QTKit will do it's best to convert frames to what ever format
     // you ask for.
-    WEBRTC_TRACE(webrtc::kTraceInfo, webrtc::kTraceVideoCapture, _id,
-                 "NumberOfCapabilities is not supported on the Mac platform.");
-     return -1;
+    // Return one hardcoded capability.
+    return 0;
 }
 }  // namespace videocapturemodule
 }  // namespace webrtc

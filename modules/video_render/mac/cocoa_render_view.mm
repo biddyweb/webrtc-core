@@ -17,36 +17,84 @@ using namespace webrtc;
 
 @implementation CocoaRenderView
 
--(void)initCocoaRenderView:(NSOpenGLPixelFormat*)fmt{
-	
-	self = [super initWithFrame:[self frame] pixelFormat:[fmt autorelease]];
-	if (self == nil){
-		
-		WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, 0, "%s:%d Could not create instance", __FUNCTION__, __LINE__); 
-	}
-	
-	
-	_nsOpenGLContext = [self openGLContext];
+-(id)initWithFrame:(NSRect)frameRect
+{
+  _cs = CriticalSectionWrapper::CreateCriticalSection();
 
+  CriticalSectionScoped lock(_cs);
+
+  GLuint attribs[] =
+  {
+    NSOpenGLPFAColorSize,  24,
+    NSOpenGLPFAAlphaSize,   8,
+    NSOpenGLPFADepthSize,  16,
+    NSOpenGLPFAAccelerated, 0
+  };
+
+  NSOpenGLPixelFormat* fmt = [[[NSOpenGLPixelFormat alloc] initWithAttributes: (NSOpenGLPixelFormatAttribute*) attribs] autorelease];
+
+  self = [super initWithFrame:frameRect pixelFormat:fmt];
+  if (self == nil) {
+    WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, 0, "%s:%d Could not create instance", __FUNCTION__, __LINE__);
+  }
+
+  _observer = 0;
+
+  return self;
 }
 
--(NSOpenGLContext*)nsOpenGLContext {
-    return _nsOpenGLContext;
+-(void)dealloc
+{
+  delete _cs;
+  [super dealloc];
 }
 
--(void)initCocoaRenderViewFullScreen:(NSOpenGLPixelFormat*)fmt{
-	
-	NSRect screenRect = [[NSScreen mainScreen]frame];
-//	[_windowRef setFrame:screenRect];
-//	[_windowRef setBounds:screenRect];
-	self = [super initWithFrame:screenRect	pixelFormat:[fmt autorelease]];
-	if (self == nil){
-		
-		WEBRTC_TRACE(kTraceError, kTraceVideoRenderer, 0, "%s:%d Could not create instance", __FUNCTION__, __LINE__); 
-	}
-	
-	_nsOpenGLContext = [self openGLContext];
+-(void)registerObserver:(CocoaRenderViewObserverInterface*)observer
+{
+  CriticalSectionScoped lock(_cs);
+  _observer = observer;
+}
 
+-(void)drawRect:(NSRect)dirtyRect
+{
+  CriticalSectionScoped lock(_cs);
+  if (_observer)
+  {
+    _observer->drawRect(dirtyRect.origin.x, dirtyRect.origin.y, dirtyRect.size.width, dirtyRect.size.height);
+  }
+  [super drawRect:dirtyRect];
+}
+
+-(void)update
+{
+  CriticalSectionScoped lock(_cs);
+  if (_observer)
+  {
+    _observer->drawRect(0,0,0,0);
+  }
+  [super update];
+}
+
+-(void)reshape
+{
+  CriticalSectionScoped lock(_cs);
+  if (_observer)
+  {
+    _observer->drawRect(0,0,0,0);
+  }
+  [super reshape];
+}
+
+-(void)setOpenGLContext:(NSOpenGLContext*)context
+{
+  CriticalSectionScoped lock(_cs);
+  [super setOpenGLContext:context];
+}
+
+-(NSOpenGLContext*)openGLContext
+{
+  CriticalSectionScoped lock(_cs);
+  return [super openGLContext];
 }
 
 @end

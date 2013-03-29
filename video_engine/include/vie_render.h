@@ -41,6 +41,8 @@ class WEBRTC_DLLEXPORT ExternalRenderer {
                            // Wallclock render time in miliseconds
                            int64_t render_time) = 0;
 
+  virtual int DeliverI420Frame(I420VideoFrame* frame) = 0;
+
  protected:
   virtual ~ExternalRenderer() {}
 };
