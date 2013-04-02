@@ -42,7 +42,7 @@ class RtpPayloadRegistryTest : public ::testing::Test {
     bool audio = true;
     ModuleRTPUtility::Payload returned_payload = { "name", audio, {
         // Initialize the audio struct in this case.
-        { kTypicalFrequency, kTypicalChannels, rate }
+        { kTypicalFrequency, kTypicalChannels, static_cast<WebRtc_UWord32>(rate) }
     }};
 
     // Note: we return a new payload since the payload registry takes ownership
