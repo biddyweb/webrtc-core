@@ -146,6 +146,10 @@ int ViEToFileRenderer::DeliverFrame(unsigned char *buffer,
   return 0;
 }
 
+int ViEToFileRenderer::DeliverI420Frame(webrtc::I420VideoFrame* frame) {
+  return 0;
+}
+
 int ViEToFileRenderer::FrameSizeChange(unsigned int width,
                                        unsigned int height,
                                        unsigned int number_of_streams) {

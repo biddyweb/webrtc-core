@@ -60,6 +60,8 @@ class ViEToFileRenderer: public webrtc::ExternalRenderer {
                    int buffer_size,
                    uint32_t time_stamp,
                    int64_t render_time);
+  
+  int DeliverI420Frame(webrtc::I420VideoFrame* frame);
 
   const std::string GetFullOutputPath() const;
 

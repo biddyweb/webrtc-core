@@ -22,6 +22,7 @@ namespace webrtc {
 
 class VideoEngine;
 class VideoRender;
+class I420VideoFrame;
 
 // This class declares an abstract interface to be used for external renderers.
 // The user implemented derived class is registered using AddRenderer().

@@ -67,6 +67,11 @@ public:
       return 0;
     }
 
+    virtual int DeliverI420Frame(webrtc::I420VideoFrame* frame)
+    {
+      return 0;
+    }
+
 public:
     virtual ~ViEAutoTestExternalRenderer()
     {
